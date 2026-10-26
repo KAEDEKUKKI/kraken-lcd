@@ -1,0 +1,16 @@
+[Unit]
+Description=Kraken Z53 LCD System Monitor
+After=multi-user.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/kukki/kraken-lcd
+ExecStart=/home/kukki/kraken-lcd/.venv/bin/python /home/kukki/kraken-lcd/kraken_monitor.py --loop --interval 3 --orientation 90
+Restart=always
+RestartSec=5
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

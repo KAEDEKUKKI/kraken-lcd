@@ -1,0 +1,25 @@
+# Reference templates & raw intermediate sources (excluded from repo)
+Templates/
+assets/backgrounds/_raw/
+
+# Python virtual environment & bytecode caches
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / Editor / Local logs & temporary files
+.DS_Store
+Thumbs.db
+*.log
+.env
+.idea/
+.vscode/
+.superpowers/
+.omo/
