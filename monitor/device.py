@@ -155,13 +155,50 @@ def send_image_to_kraken(img: Image.Image, device) -> bool:
             pass
 
 
+def _dispose_usb(usbdev) -> None:
+    """釋放 PyUSB 裝置所有已宣告介面並關閉 libusb handle (釋放檔案描述元)。"""
+    import usb.util
+
+    usb.util.dispose_resources(usbdev)
+
+
+def close_device(device) -> None:
+    """
+    完整關閉 Kraken 裝置。
+    liquidctl 的 KrakenZ3 會在建構時另外開啟一個 PyUSB bulk handle (用於 LCD 傳圖)，
+    但 disconnect() 只會關閉 HID 介面，bulk handle 不會被釋放：
+    - 舊 handle 持續佔用 USB 介面 -> 新連線寫入時出現 [Errno 16] Resource busy
+    - 每次重連都洩漏 libusb 檔案描述元 -> 最終 [Errno 24] Too many open files，螢幕停住
+    因此這裡必須手動釋放並 dispose bulk handle。
+    """
+    if device is None:
+        return
+    try:
+        device.disconnect()
+    except Exception:
+        pass
+    bulk = getattr(device, "bulk_device", None)
+    if bulk is not None:
+        try:
+            bulk.release()
+        except Exception:
+            pass
+        usbdev = getattr(bulk, "usbdev", None)
+        if usbdev is not None:
+            try:
+                _dispose_usb(usbdev)
+            except Exception:
+                pass
+        try:
+            device.bulk_device = None
+        except Exception:
+            pass
+
+
 def reconnect_device(old_device):
     global _active_bucket_slot
     _active_bucket_slot = None
-    try:
-        old_device.disconnect()
-    except Exception:
-        pass
+    close_device(old_device)
     time.sleep(2)
     device = find_kraken_device()
     if device is None:
@@ -175,4 +212,5 @@ def reconnect_device(old_device):
         return device
     except Exception as e:
         print(f"Reconnect failed: {e}")
+        close_device(device)
         return None

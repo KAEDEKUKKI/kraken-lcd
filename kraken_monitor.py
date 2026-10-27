@@ -24,6 +24,7 @@ import config
 from monitor.collector import get_cpu_info, get_memory_info, get_gpu_info
 from monitor.device import (
     LIQUIDCTL_AVAILABLE,
+    close_device,
     find_kraken_device,
     reconnect_device,
     rotate_image,
@@ -31,6 +32,9 @@ from monitor.device import (
 )
 from monitor.renderer import HUDRenderer
 from monitor.state import StateMachine, SystemState
+
+# 連續失敗達此次數即結束行程，由 systemd 重新啟動
+MAX_CONSECUTIVE_FAILURES = 10
 
 _renderer_instance: HUDRenderer | None = None
 
@@ -169,9 +173,14 @@ def main():
     state_machine = StateMachine()
     last_state: SystemState | None = None
     last_metrics: dict | None = None
+    # 連續失敗次數：超過上限時直接結束行程，交由 systemd (Restart=always) 以全新行程重啟，
+    # 避免在錯誤迴圈中無限空轉、螢幕永遠停在最後一幀。
+    consecutive_failures = 0
+    exit_code = 0
 
     try:
         while True:
+            iteration_ok = True
             try:
                 print("Gathering info...", end=" ", flush=True)
                 cpu_info = get_cpu_info()
@@ -206,15 +215,29 @@ def main():
                             last_metrics = curr_metrics
                             last_state = current_state
                         else:
+                            iteration_ok = False
                             print("Send failed, reconnecting...")
                             device = reconnect_device(device)
                             if device is None:
-                                sys.exit(1)
+                                exit_code = 1
+                                break
 
             except Exception as e:
+                iteration_ok = False
                 print(f"\nError in monitor iteration: {e}")
                 if not args.loop:
                     raise
+
+            if iteration_ok:
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    print(
+                        f"{consecutive_failures} consecutive failures, exiting for service restart"
+                    )
+                    exit_code = 1
+                    break
 
             if not args.loop:
                 break
@@ -226,10 +249,12 @@ def main():
     finally:
         if device:
             print("Disconnecting...")
-            device.disconnect()
+            close_device(device)
 
     print("-" * 55)
     print("Monitor stopped.")
+    if exit_code:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":
